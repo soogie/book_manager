@@ -77,10 +77,15 @@ def import_csv():
 
 # UI
 def main():
-    st.title("Soogie's books")
+    # ページ設定（サイドバーを折りたたむ）
+    st.set_page_config(
+        page_title="Soogie's books",
+        layout="wide",
+        initial_sidebar_state="collapsed"  # 折りたたみ設定
+    )
 
     menu = ["登録", "検索", "編集", "削除", "CSVエクスポート", "CSVインポート"]
-    choice = st.sidebar.selectbox("Menu", menu)
+    choice = st.sidebar.selectbox("Menu", menu, index=1)
 
     if choice == "登録":
         st.header("新しい書籍を登録")
@@ -155,7 +160,7 @@ def main():
 
         books = db.execute("SELECT id, title FROM books").fetchall()
         book_options = {f"{id}: {title}": id for id, title in books}
-        selected = st.selectbox("Select a Book to Edit", [""] + list(book_options.keys()))
+        selected = st.selectbox("編集する書籍を選択(IDもしくは書籍名の部分一致)", [""] + list(book_options.keys()))
 
         if selected:
             book_id = book_options[selected]
@@ -178,10 +183,16 @@ def main():
         books = db.execute("SELECT id, title FROM books").fetchall()
         if books:
             book_options = {f"{id}: {title}": id for id, title in books}
-            selected = st.selectbox("Select a Book to Delete", [""] + list(book_options.keys()))
+            selected = st.selectbox("削除する書籍を選択", [""] + list(book_options.keys()))
 
             if selected:
                 book_id = book_options[selected]
+                book_data = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
+
+                title = st.write(f"書籍名:{book_data[1]}")
+                series = st.write(f"シリーズ:{book_data[2]}")
+                author = st.write(f"著者名:{book_data[3]}")
+                publisher = st.write(f"出版社:{book_data[4]}")
 
                 # Confirm deletion
                 if st.button("削除"):
