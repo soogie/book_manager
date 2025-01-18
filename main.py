@@ -22,12 +22,6 @@ def get_next_id():
     result = db.execute("SELECT MAX(id) FROM books").fetchone()
     return (result[0] or 0) + 1
 
-# Helper function to fetch distinct values for dropdown
-def get_distinct_values(column_name):
-    query = f"SELECT DISTINCT {column_name} FROM books WHERE {column_name} IS NOT NULL"
-    result = db.execute(query).fetchall()
-    return [r[0] for r in result]
-
 # Fetch distinct values for dropdown, sorted in alphabetical order
 def get_sorted_values(column_name):
     query = f"SELECT DISTINCT {column_name} FROM books WHERE {column_name} IS NOT NULL ORDER BY {column_name} ASC"
@@ -36,9 +30,18 @@ def get_sorted_values(column_name):
 
 
 def import_csv():
-    st.header("Import Books from CSV")
+    st.header("CSVファイルをインポート")
+    st.markdown('''
+    
+        以下の4つの列をもつCSVファイル（UTF-8エンコーディング）をアップロードします。
 
-    uploaded_file = st.file_uploader("Upload a CSV file", type=["csv"])
+        「title」「series」「author」「publisher」
+
+        重複があっても追加されますのでご注意ください。
+
+    ''')
+
+    uploaded_file = st.file_uploader("ファイルアップロード", type=["csv"])
 
     if uploaded_file is not None:
         try:
@@ -47,7 +50,7 @@ def import_csv():
 
             # Check if required column "title" exists
             if "title" not in df.columns:
-                st.error("The CSV must contain at least a 'title' column.")
+                st.error("CSVファイルに'title'列がありません")
                 return
 
             # Fill missing optional columns with None
@@ -67,42 +70,42 @@ def import_csv():
                 "INSERT INTO books (id, title, series, author, publisher) VALUES (?, ?, ?, ?, ?)",
                 data_to_insert
             )
-            st.success("Books imported successfully!")
+            st.success("インポート終了")
         except Exception as e:
             st.error(f"An error occurred while importing the CSV: {e}")
 
 
 # UI
 def main():
-    st.title("Book Management Web App")
+    st.title("Soogie's books")
 
-    menu = ["Register Book", "Search Books", "Edit Book", "Delete Book", "Export to CSV", "Import from CSV"]
+    menu = ["登録", "検索", "編集", "削除", "CSVエクスポート", "CSVインポート"]
     choice = st.sidebar.selectbox("Menu", menu)
 
-    if choice == "Register Book":
-        st.header("Register a New Book")
+    if choice == "登録":
+        st.header("新しい書籍を登録")
 
-        title = st.text_input("Book Title (Required)", max_chars=255)
+        title = st.text_input("書籍名 (必須)", max_chars=255)
 
         # Series input
         series_options = [""] + get_sorted_values("series")
-        selected_series = st.selectbox("Series Name (Optional)", series_options)
-        new_series = st.text_input("Or Enter a New Series Name (Optional)")
+        selected_series = st.selectbox("既存のシリーズから選択(任意)", series_options)
+        new_series = st.text_input("またはシリーズを入力")
         series = new_series.strip() if new_series.strip() else selected_series
 
         # Author input
         author_options = [""] + get_sorted_values("author")
-        selected_author = st.selectbox("Author Name (Optional)", author_options)
-        new_author = st.text_input("Or Enter a New Author Name (Optional)")
+        selected_author = st.selectbox("既存の著者名から選択 (任意)", author_options)
+        new_author = st.text_input("または著者名を入力")
         author = new_author.strip() if new_author.strip() else selected_author
 
         # Publisher input
         publisher_options = [""] + get_sorted_values("publisher")
-        selected_publisher = st.selectbox("Publisher Name (Optional)", publisher_options)
-        new_publisher = st.text_input("Or Enter a New Publisher Name (Optional)")
+        selected_publisher = st.selectbox("既存の出版社から選択 (任意)", publisher_options)
+        new_publisher = st.text_input("または出版社を入力")
         publisher = new_publisher.strip() if new_publisher.strip() else selected_publisher
 
-        if st.button("Register"):
+        if st.button("登録"):
             if title.strip():
                 # Generate the next ID
                 new_id = get_next_id()
@@ -114,16 +117,16 @@ def main():
                 )
                 st.success("Book registered successfully!")
             else:
-                st.error("Book title is required!")
+                st.error("書籍名は必須です!!")
 
 
-    elif choice == "Search Books":
-        st.header("Search Books")
+    elif choice == "検索":
+        st.header("検索")
 
-        title = st.text_input("Search by Title")
-        series = st.text_input("Search by Series")
-        author = st.text_input("Search by Author")
-        publisher = st.text_input("Search by Publisher")
+        title = st.text_input("書籍名で検索")
+        series = st.text_input("シリーズで検索")
+        author = st.text_input("著者名で検索")
+        publisher = st.text_input("出版社で検索")
 
         query = "SELECT * FROM books WHERE 1=1"
         params = []
@@ -147,8 +150,8 @@ def main():
         results = db.execute(query, params).fetchdf()
         st.write(results)
 
-    elif choice == "Edit Book":
-        st.header("Edit Book")
+    elif choice == "編集":
+        st.header("書籍編集")
 
         books = db.execute("SELECT id, title FROM books").fetchall()
         book_options = {f"{id}: {title}": id for id, title in books}
@@ -158,18 +161,18 @@ def main():
             book_id = book_options[selected]
             book_data = db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
 
-            title = st.text_input("Book Title", value=book_data[1], max_chars=255)
-            series = st.text_input("Series", value=book_data[2])
-            author = st.text_input("Author", value=book_data[3])
-            publisher = st.text_input("Publisher", value=book_data[4])
+            title = st.text_input("書籍名", value=book_data[1], max_chars=255)
+            series = st.text_input("シリーズ", value=book_data[2])
+            author = st.text_input("著者名", value=book_data[3])
+            publisher = st.text_input("出版社", value=book_data[4])
 
-            if st.button("Update"):
+            if st.button("更新"):
                 db.execute("UPDATE books SET title = ?, series = ?, author = ?, publisher = ? WHERE id = ?",
                            (title, series, author, publisher, book_id))
-                st.success("Book updated successfully!")
+                st.success("書籍を更新しました!!")
 
-    elif choice == "Delete Book":
-        st.header("Delete Book")
+    elif choice == "削除":
+        st.header("書籍削除")
 
         # Fetch all books for selection
         books = db.execute("SELECT id, title FROM books").fetchall()
@@ -181,23 +184,23 @@ def main():
                 book_id = book_options[selected]
 
                 # Confirm deletion
-                if st.button("Delete"):
+                if st.button("削除"):
                     try:
                         db.execute("DELETE FROM books WHERE id = ?", (book_id,))
-                        st.success(f"Book with ID {book_id} deleted successfully!")
+                        st.success(f"ID {book_id} の書籍を削除しました")
                     except Exception as e:
                         st.error(f"An error occurred while deleting the book: {e}")
         else:
-            st.info("No books available to delete.")
+            st.info("削除する書籍がありません")
 
-    elif choice == "Export to CSV":
-        st.header("Export Books to CSV")
+    elif choice == "CSVエクスポート":
+        st.header("CSV形式でエクスポート")
 
         data = db.execute("SELECT * FROM books").fetchdf()
         csv = data.to_csv(index=False)
-        st.download_button(label="Download CSV", data=csv, file_name="books.csv", mime="text/csv")
+        st.download_button(label="ダウンロード", data=csv, file_name="books.csv", mime="text/csv")
     
-    elif choice == "Import from CSV":
+    elif choice == "CSVインポート":
         import_csv()
 
 if __name__ == '__main__':
