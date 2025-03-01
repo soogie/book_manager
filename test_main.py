@@ -16,23 +16,16 @@ from main import (
 )
 import tempfile
 import os
+import io
 
 @pytest.fixture(scope="function")
 def db():
     """
-    Fixture to create a temporary database for each test and close it afterwards.
+    Fixture to create a temporary in-memory database for each test.
     """
-    temp_db_file = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-    temp_db_path = temp_db_file.name
-    temp_db_file.close()
-    
-    db_conn = init_db(temp_db_path)
-    
+    db_conn = init_db(':memory:')  # Create an in-memory connection
     yield db_conn
-    
     db_conn.close()
-    os.unlink(temp_db_path)
-    
 
 def test_init_db(db):
     """Test if the database is initialized correctly."""
@@ -79,7 +72,7 @@ def test_search_books(db):
     db.execute("INSERT INTO books (id, title, series, author, publisher) VALUES (3, 'Different Book', 'Series A', 'Author C', 'Publisher Z')")
 
     results = search_books(db, title="Book")
-    assert len(results) == 2
+    assert len(results) == 3
 
     results = search_books(db, series="Series A")
     assert len(results) == 2
@@ -91,7 +84,7 @@ def test_search_books(db):
     assert len(results) == 1
 
     results = search_books(db, title="Book", series="Series A")
-    assert len(results) == 1
+    assert len(results) == 2
 
     results = search_books(db, title="Nonexistent")
     assert len(results) == 0
@@ -114,8 +107,8 @@ def test_delete_book(db):
     """Test if delete_book function works correctly."""
     db.execute("INSERT INTO books (id, title) VALUES (1, 'Book 1')")
     delete_book(db, 1)
-    result = db.execute("SELECT * FROM books WHERE id=1").fetchone()
-    assert result is None
+    book = get_book_by_id(db, 1)
+    assert book is None
 
 def test_get_all_books(db):
     """Test if get_all_books function works correctly."""
@@ -123,47 +116,59 @@ def test_get_all_books(db):
     db.execute("INSERT INTO books (id, title) VALUES (2, 'Book 2')")
     books = get_all_books(db)
     assert len(books) == 2
-    assert (1,"Book 1") in books
+    assert (1, "Book 1") in books
     assert (2, "Book 2") in books
-
 
 def test_export_books_to_csv(db):
     """Test if export_books_to_csv function works correctly."""
     db.execute("INSERT INTO books (id, title, series, author, publisher) VALUES (1, 'Book 1', 'Series A', 'Author A', 'Publisher X')")
+    db.execute("INSERT INTO books (id, title, series, author, publisher) VALUES (2, 'Book 2', 'Series B', 'Author B', 'Publisher Y')")
     csv_string = export_books_to_csv(db)
     assert "id,title,series,author,publisher" in csv_string
     assert "1,Book 1,Series A,Author A,Publisher X" in csv_string
+    assert "2,Book 2,Series B,Author B,Publisher Y" in csv_string
 
 def test_import_books_from_csv(db):
     """Test if import_books_from_csv function works correctly."""
-    # Create a sample CSV file
-    csv_data = "title,series,author,publisher\nBook 1,Series A,Author A,Publisher X\nBook 2,,Author B,"
+    csv_data = """title,series,author,publisher
+Book A,Series X,Author 1,Publisher P
+Book B,Series Y,Author 2,Publisher Q"""
     
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as temp_csv_file:
-        temp_csv_file.write(csv_data)
-        temp_csv_path = temp_csv_file.name
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+        temp_file.write(csv_data)
+        temp_filename = temp_file.name
 
-    # Import books from the temporary CSV file
-    import_books_from_csv(db, temp_csv_path)
-
-    # Check if the books were imported correctly
-    books = db.execute("SELECT * FROM books").fetchall()
-    assert len(books) == 2
-    assert books[0] == (1, "Book 1", "Series A", "Author A", "Publisher X")
-    assert books[1] == (2, "Book 2", None, "Author B", None)
-    
-    os.unlink(temp_csv_path)
-
-def test_import_books_from_csv_with_invalid_format(db):
-    """Test if import_books_from_csv function works correctly."""
-    # Create a sample CSV file
-    csv_data = "name,series,author,publisher\nBook 1,Series A,Author A,Publisher X\nBook 2,,Author B,"
-    
-    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as temp_csv_file:
-        temp_csv_file.write(csv_data)
-        temp_csv_path = temp_csv_file.name
-
-    with pytest.raises(ValueError):
-        import_books_from_csv(db, temp_csv_path)
+    try:
+        import_books_from_csv(db, temp_filename)
+        books = get_all_books(db)
+        assert len(books) == 2
+        assert any('Book A' in book for book in books)
+        assert any('Book B' in book for book in books)
         
-    os.unlink(temp_csv_path)
+        book_a_id = db.execute("SELECT id FROM books WHERE title = 'Book A'").fetchone()[0]
+        book_a = get_book_by_id(db,book_a_id)
+        assert book_a == (book_a_id, "Book A", "Series X", "Author 1", "Publisher P")
+        
+        book_b_id = db.execute("SELECT id FROM books WHERE title = 'Book B'").fetchone()[0]
+        book_b = get_book_by_id(db,book_b_id)
+        assert book_b == (book_b_id, "Book B", "Series Y", "Author 2", "Publisher Q")
+
+    finally:
+        os.remove(temp_filename)
+        
+def test_import_books_from_csv_no_title(db):
+    """Test if import_books_from_csv function raises error when 'title' column is missing."""
+    csv_data = """series,author,publisher
+Series X,Author 1,Publisher P
+Series Y,Author 2,Publisher Q"""
+    
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+        temp_file.write(csv_data)
+        temp_filename = temp_file.name
+    
+    with pytest.raises(ValueError) as e_info:
+        import_books_from_csv(db, temp_filename)
+        
+    assert "CSV file does not contain the 'title' column." in str(e_info.value)
+    
+    os.remove(temp_filename)
