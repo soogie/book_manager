@@ -13,6 +13,9 @@ from main import (
     get_all_books,
     export_books_to_csv,
     import_books_from_csv,
+    hash_password,
+    create_user,
+    verify_user,
 )
 import tempfile
 import os
@@ -172,3 +175,32 @@ Series Y,Author 2,Publisher Q"""
     assert "CSV file does not contain the 'title' column." in str(e_info.value)
     
     os.remove(temp_filename)
+
+# --- Authentication Tests ---
+
+def test_hash_password():
+    """Test if password hashing works correctly."""
+    password = "testpassword123"
+    hash1 = hash_password(password)
+    hash2 = hash_password(password)
+    assert hash1 == hash2
+    assert hash1 != password
+    assert len(hash1) == 64  # SHA-256 produces 64-character hex string
+
+def test_create_user(db):
+    """Test if user creation works correctly."""
+    assert create_user(db, "testuser", "testpass") == True
+    assert create_user(db, "testuser", "differentpass") == False  # Duplicate username
+
+def test_verify_user(db):
+    """Test if user verification works correctly."""
+    create_user(db, "testuser", "testpass")
+    assert verify_user(db, "testuser", "testpass") == True
+    assert verify_user(db, "testuser", "wrongpass") == False
+    assert verify_user(db, "nonexistent", "testpass") == False
+
+def test_users_table_creation(db):
+    """Test if users table is created correctly."""
+    result = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").fetchone()
+    assert result is not None
+    assert result[0] == "users"

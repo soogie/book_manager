@@ -1,6 +1,7 @@
 import streamlit as st
 import duckdb
 import pandas as pd
+import hashlib
 
 # --- Database Interaction Functions ---
 
@@ -14,6 +15,14 @@ def init_db(db_path='books.db'):
             series TEXT,
             author TEXT,
             publisher TEXT
+        )
+    ''')
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     return db
@@ -101,11 +110,45 @@ def import_books_from_csv(db, csv_file):
     except Exception as e:
         raise e
 
+# --- User Authentication Functions ---
+
+def hash_password(password):
+    """Hashes a password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def create_user(db, username, password):
+    """Creates a new user with hashed password."""
+    password_hash = hash_password(password)
+    try:
+        db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, password_hash))
+        return True
+    except Exception:
+        return False
+
+def verify_user(db, username, password):
+    """Verifies user credentials."""
+    password_hash = hash_password(password)
+    result = db.execute("SELECT username FROM users WHERE username = ? AND password_hash = ?", 
+                       (username, password_hash)).fetchone()
+    return result is not None
+
+def is_authenticated():
+    """Checks if user is authenticated in current session."""
+    return st.session_state.get("authenticated", False)
+
+def get_current_user():
+    """Gets current authenticated user."""
+    return st.session_state.get("username", None)
+
 # --- Streamlit UI Functions ---
 
 def ui_register_book(db):
     """UI for registering a new book."""
     st.header("新しい書籍を登録")
+    
+    if not is_authenticated():
+        st.warning("書籍を登録するにはログインが必要です")
+        return
 
     title = st.text_input("書籍名 (必須)", max_chars=255)
 
@@ -218,6 +261,45 @@ def ui_import_csv(db):
         except Exception as e:
             st.error(f"An error occurred while importing the CSV: {e}")
 
+def ui_login(db):
+    """UI for user login."""
+    st.header("ログイン")
+    
+    username = st.text_input("ユーザー名")
+    password = st.text_input("パスワード", type="password")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("ログイン"):
+            if username and password:
+                if verify_user(db, username, password):
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = username
+                    st.success("ログインしました")
+                    st.rerun()
+                else:
+                    st.error("ユーザー名またはパスワードが間違っています")
+            else:
+                st.error("ユーザー名とパスワードを入力してください")
+    
+    with col2:
+        if st.button("新規ユーザー登録"):
+            if username and password:
+                if create_user(db, username, password):
+                    st.success("ユーザーを登録しました。ログインしてください。")
+                else:
+                    st.error("ユーザー名が既に存在するか、登録に失敗しました")
+            else:
+                st.error("ユーザー名とパスワードを入力してください")
+
+def ui_logout():
+    """UI for user logout."""
+    if st.sidebar.button("ログアウト"):
+        st.session_state["authenticated"] = False
+        st.session_state["username"] = None
+        st.rerun()
+
 # --- Main App ---
 
 def main():
@@ -229,13 +311,26 @@ def main():
 
     db = init_db()
 
-    menu = ["登録", "検索", "編集", "削除", "CSVエクスポート", "CSVインポート"]
+    # Initialize session state
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+    if "username" not in st.session_state:
+        st.session_state["username"] = None
+
+    # Display login status and logout button
+    if is_authenticated():
+        st.sidebar.success(f"ログイン中: {get_current_user()}")
+        ui_logout()
+    
+    menu = ["ログイン", "検索", "登録", "編集", "削除", "CSVエクスポート", "CSVインポート"]
     choice = st.sidebar.selectbox("Menu", menu, index=1)
 
-    if choice == "登録":
-        ui_register_book(db)
+    if choice == "ログイン":
+        ui_login(db)
     elif choice == "検索":
         ui_search_books(db)
+    elif choice == "登録":
+        ui_register_book(db)
     elif choice == "編集":
         ui_edit_book(db)
     elif choice == "削除":
