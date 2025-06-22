@@ -3,10 +3,10 @@ import duckdb
 import pandas as pd
 import hashlib
 
-# --- Database Interaction Functions ---
+# --- データベース関数 ---
 
 def init_db(db_path='books.db'):
-    """Initializes the database connection and creates the table if it doesn't exist."""
+    """データベース接続を初期化し、テーブルが存在しない場合は作成する。"""
     db = duckdb.connect(database=db_path, read_only=False)
     db.execute('''
         CREATE TABLE IF NOT EXISTS books (
@@ -28,18 +28,18 @@ def init_db(db_path='books.db'):
     return db
 
 def get_next_id(db):
-    """Gets the next available ID for a new book."""
+    """新しい書籍の次の利用可能なIDを取得する。"""
     result = db.execute("SELECT MAX(id) FROM books").fetchone()
     return (result[0] or 0) + 1
 
 def get_sorted_values(db, column_name):
-    """Fetches distinct values from a column, sorted alphabetically."""
+    """列から一意な値をアルファベット順にソートして取得する。"""
     query = f"SELECT DISTINCT {column_name} FROM books WHERE {column_name} IS NOT NULL ORDER BY {column_name} ASC"
     result = db.execute(query).fetchall()
     return [r[0] for r in result]
 
 def insert_book(db, title, series, author, publisher):
-    """Inserts a new book into the database."""
+    """データベースに新しい書籍を挿入する。"""
     new_id = get_next_id(db)
     db.execute(
         "INSERT INTO books (id, title, series, author, publisher) VALUES (?, ?, ?, ?, ?)",
@@ -49,7 +49,7 @@ def insert_book(db, title, series, author, publisher):
     
 
 def search_books(db, title=None, series=None, author=None, publisher=None):
-    """Searches for books based on the provided criteria."""
+    """指定された条件に基づいて書籍を検索する。"""
     query = "SELECT * FROM books WHERE 1=1"
     params = []
 
@@ -72,29 +72,29 @@ def search_books(db, title=None, series=None, author=None, publisher=None):
     return db.execute(query, params).fetchdf()
 
 def get_book_by_id(db, book_id):
-    """Retrieves a book's data by its ID."""
+    """IDによって書籍のデータを取得する。"""
     return db.execute("SELECT * FROM books WHERE id = ?", (book_id,)).fetchone()
 
 def update_book(db, book_id, title, series, author, publisher):
-    """Updates a book's data in the database."""
+    """データベース内の書籍データを更新する。"""
     db.execute("UPDATE books SET title = ?, series = ?, author = ?, publisher = ? WHERE id = ?",
                (title, series, author, publisher, book_id))
 
 def delete_book(db, book_id):
-    """Deletes a book from the database by its ID."""
+    """IDでデータベースから書籍を削除する。"""
     db.execute("DELETE FROM books WHERE id = ?", (book_id,))
 
 def get_all_books(db):
-    """Retrieves all books from the database (for selection)."""
+    """データベースからすべての書籍を取得する（選択用）。"""
     return db.execute("SELECT id, title FROM books").fetchall()
 
 def export_books_to_csv(db):
-    """Exports all books to a CSV string."""
+    """すべての書籍をCSV文字列でエクスポートする。"""
     data = db.execute("SELECT * FROM books").fetchdf()
     return data.to_csv(index=False)
 
 def import_books_from_csv(db, csv_file):
-    """Imports books from a CSV file into the database."""
+    """CSVファイルからデータベースに書籍をインポートする。"""
     try:
         df = pd.read_csv(csv_file)
         if "title" not in df.columns:
@@ -110,40 +110,42 @@ def import_books_from_csv(db, csv_file):
     except Exception as e:
         raise e
 
-# --- User Authentication Functions ---
+# --- ユーザー認証関数 ---
 
 def hash_password(password):
-    """Hashes a password using SHA-256."""
+    """SHA-256を使用してパスワードをハッシュ化する。"""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def create_user(db, username, password):
-    """Creates a new user with hashed password."""
+    """ハッシュ化されたパスワードで新しいユーザーを作成する。"""
     password_hash = hash_password(password)
     try:
-        db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, password_hash))
+        max_id = db.execute("SELECT MAX(id) FROM users").fetchone()[0] or 0
+        new_id = max_id + 1
+        db.execute("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)", (new_id, username, password_hash))
         return True
     except Exception:
         return False
 
 def verify_user(db, username, password):
-    """Verifies user credentials."""
+    """ユーザーの認証情報を検証する。"""
     password_hash = hash_password(password)
     result = db.execute("SELECT username FROM users WHERE username = ? AND password_hash = ?", 
                        (username, password_hash)).fetchone()
     return result is not None
 
 def is_authenticated():
-    """Checks if user is authenticated in current session."""
+    """現在のセッションでユーザーが認証されているかどうかをチェックする。"""
     return st.session_state.get("authenticated", False)
 
 def get_current_user():
-    """Gets current authenticated user."""
+    """現在認証されているユーザーを取得する。"""
     return st.session_state.get("username", None)
 
-# --- Streamlit UI Functions ---
+# --- Streamlit UI関数 ---
 
 def ui_register_book(db):
-    """UI for registering a new book."""
+    """新しい書籍を登録するためのUI。"""
     st.header("新しい書籍を登録")
     
     if not is_authenticated():
@@ -175,7 +177,7 @@ def ui_register_book(db):
             st.error("書籍名は必須です!!")
 
 def ui_search_books(db):
-    """UI for searching books."""
+    """書籍検索用のUI。"""
     st.header("検索")
 
     title = st.text_input("書籍名で検索")
@@ -187,8 +189,12 @@ def ui_search_books(db):
     st.write(results)
 
 def ui_edit_book(db):
-    """UI for editing an existing book."""
+    """既存の書籍を編集するためのUI。"""
     st.header("書籍編集")
+
+    if not is_authenticated():
+        st.warning("書籍編集を行うにはログインが必要です。")
+        return
 
     books = get_all_books(db)
     book_options = {f"{id}: {title}": id for id, title in books}
@@ -208,8 +214,12 @@ def ui_edit_book(db):
             st.success("書籍を更新しました!!")
 
 def ui_delete_book(db):
-    """UI for deleting a book."""
+    """書籍削除用のUI。"""
     st.header("書籍削除")
+
+    if not is_authenticated():
+        st.warning("書籍削除を行うにはログインが必要です。")
+        return
 
     books = get_all_books(db)
     if books:
@@ -235,12 +245,13 @@ def ui_delete_book(db):
         st.info("削除する書籍がありません")
 
 def ui_export_csv(db):
-    """UI for exporting books to CSV."""
+    """書籍をCSVにエクスポートするためのUI。"""
     st.header("CSV形式でエクスポート")
     csv = export_books_to_csv(db)
     st.download_button(label="ダウンロード", data=csv, file_name="books.csv", mime="text/csv")
 
 def ui_import_csv(db):
+    """CSVから書籍をインポートするためのUI。"""
     st.header("CSVファイルをインポート")
     st.markdown('''
         以下の4つの列をもつCSVファイル（UTF-8エンコーディング）をアップロードします。
@@ -262,7 +273,7 @@ def ui_import_csv(db):
             st.error(f"An error occurred while importing the CSV: {e}")
 
 def ui_login(db):
-    """UI for user login."""
+    """ユーザーログイン用のUI。"""
     st.header("ログイン")
     
     username = st.text_input("ユーザー名")
@@ -294,13 +305,13 @@ def ui_login(db):
                 st.error("ユーザー名とパスワードを入力してください")
 
 def ui_logout():
-    """UI for user logout."""
+    """ユーザーログアウト用のUI。"""
     if st.sidebar.button("ログアウト"):
         st.session_state["authenticated"] = False
         st.session_state["username"] = None
         st.rerun()
 
-# --- Main App ---
+# --- メインアプリ ---
 
 def main():
     st.set_page_config(
@@ -311,13 +322,13 @@ def main():
 
     db = init_db()
 
-    # Initialize session state
+    # セッションステートを初期化
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
     if "username" not in st.session_state:
         st.session_state["username"] = None
 
-    # Display login status and logout button
+    # ログイン状態とログアウトボタンを表示
     if is_authenticated():
         st.sidebar.success(f"ログイン中: {get_current_user()}")
         ui_logout()
